@@ -1,0 +1,3 @@
+# The game's dungeon type carries the checker's approval
+
+Generation is pure with a re-roll budget, so it must return something when the budget runs out. We make the game state hold a subtype "dungeon the checker accepts" and give the generator a hand-written fallback dungeon that `decide` checks at compile time. The headline theorem then quantifies over whatever dungeon the state holds, with no "if generation returned" caveat. We chose this over a `partial` generator that loops forever (unprovable, can hang) and over failing on budget exhaustion (a demo that can crash on a bad seed). The status line reports when the fallback is in play so it is never hidden.
