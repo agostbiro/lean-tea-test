@@ -147,7 +147,88 @@ def app (seed : Nat) : App Model Msg :=
   { init := start seed, view := view, update := update, quitWhen := (·.quit),
     initialFocus := "game" }
 
-def run (seed : Nat) : IO Unit :=
-  (app seed).runWith { width := 80, height := 24, focusOrder := ["game"] }
+/-! ## Terminal runner
+
+lean-tea's `App.runWith` ends each row with a bare `\n`. Under `stty raw`
+output processing is off, so `\n` does not return to column 0 and the
+screen comes out as a staircase. It also uses a fixed size. This runner
+places every row with an absolute cursor move and asks the terminal for
+its real size on every frame. -/
+
+def ansi (s : String) : String := s!"\x1b[{s}"
+
+def colorCode (c : LeanTea.Tui.Color) (bg : Bool) : String :=
+  let code : LeanTea.Tui.Color → Option Nat
+    | .black => some 0 | .red => some 1 | .green => some 2 | .yellow => some 3
+    | .blue => some 4 | .magenta => some 5 | .cyan => some 6 | .white => some 7
+    | _ => none
+  let base := if bg then 40 else 30
+  match c with
+  | .bright cc => match code cc with
+    | some n => ansi s!"{base + 60 + n}m"
+    | none => ansi s!"{base + 9}m"
+  | cc => ansi s!"{base + (code cc).getD 9}m"
+
+def styleCode (s : Style) : String :=
+  ansi "0m" ++ colorCode s.fg false ++ colorCode s.bg true
+    ++ (if s.bold then ansi "1m" else "")
+    ++ (if s.dim then ansi "2m" else "")
+    ++ (if s.inverse then ansi "7m" else "")
+
+/-- One full frame. Rows are placed with `CSI row;1H`, never `\n`. -/
+def paint (box : Box) : String := Id.run do
+  let mut out := ""
+  for r in [:box.height] do
+    out := out ++ ansi s!"{r + 1};1H" ++ ansi "0m"
+    let mut cur : Option Style := none
+    for cell in box.cells[r]! do
+      if cur != some cell.style then
+        out := out ++ styleCode cell.style
+        cur := some cell.style
+      out := out.push cell.ch
+  return out ++ ansi "0m"
+
+def sh (cmd : String) : IO String :=
+  IO.Process.run { cmd := "sh", args := #["-c", cmd] }
+
+/-- `(cols, rows)` of the controlling terminal, or 80x24 if unknown. -/
+def termSize : IO (Nat × Nat) := do
+  try
+    match (← sh "stty size < /dev/tty").trimAscii.toString.splitOn " " with
+    | [r, c] => match r.toNat?, c.toNat? with
+      | some r, some c => if r > 0 && c > 0 then return (c, r) else return (80, 24)
+      | _, _ => return (80, 24)
+    | _ => return (80, 24)
+  catch _ => return (80, 24)
+
+partial def run (seed : Nat) : IO Unit := do
+  let stdout ← IO.getStdout
+  let stdin ← IO.getStdin
+  let saved ← try (·.trimAscii.toString) <$> sh "stty -g < /dev/tty" catch _ => pure ""
+  let _ ← try sh "stty raw -echo < /dev/tty" catch _ => pure ""
+  stdout.putStr (ansi "?1049h" ++ ansi "?25l" ++ ansi "2J")
+  stdout.flush
+  let a := app seed
+  try
+    let mut state := a.init
+    let mut lastSize := (0, 0)
+    while !(a.quitWhen state) do
+      let (w, h) ← termSize
+      -- After a resize, wipe leftovers from the old, larger frame.
+      if (w, h) != lastSize then stdout.putStr (ansi "2J")
+      lastSize := (w, h)
+      let widget := a.view state
+      stdout.putStr (paint (widget.render w h true))
+      stdout.flush
+      match ← LeanTea.Tui.readKey stdin with
+      | .ctrl 'c' => break
+      | key =>
+        if let some msg := widget.dispatchKey "game" key then
+          state := a.update msg state
+  finally
+    let restore := if saved.isEmpty then "-raw echo" else saved
+    let _ ← try sh s!"stty {restore} < /dev/tty" catch _ => pure ""
+    stdout.putStr (ansi "0m" ++ ansi "?25h" ++ ansi "?1049l")
+    stdout.flush
 
 end Crawl.Tui
