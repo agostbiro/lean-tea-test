@@ -15,8 +15,9 @@ lake build          # fetches Mathlib from the prebuilt cache on first run
 ```
 
 Arrows or `hjkl` move, `.` waits, Enter starts a new dungeon, `q` quits.
-Bump a monster to attack it. Keys open doors of their color and are never
-spent.
+Bump a monster to attack it. A key opens one door of its color and is spent;
+the door stays open. The game refuses to open a door if spending the key there
+would leave the stairs out of reach.
 
 ## The theorem
 
@@ -24,16 +25,17 @@ spent.
 `native_decide`. `Tests.lean` fails the build if any of the headline results
 picks up an axiom beyond `propext`, `Classical.choice` and `Quot.sound`.
 
-- `Reachable` (`Core/Reach.lean`) is the meaning of "the player can get
-  there": open cells are passable, a door is passable if its color is held or a
-  key of that color lies on a reachable cell. `Completable` means the stairs are
-  reachable.
+- `Step` (`Core/Reach.lean`) is one move in the model: walk onto a free cell,
+  pick up a key, or spend a key to open a door for good. `Completable` means
+  some sequence of steps reaches the stairs.
 - `check_sound` (`Core/Check.lean`): if the checker accepts a dungeon, it is
   `Completable`. The generator is unproven and may propose anything; the game
   only accepts what the checker approves.
 - `State.step_inv` (`Core/Rules.lean`): every legal move preserves
-  `Completable`. The proof is that a move can be undone, so whatever was
-  reachable before is reachable after, and picking up a key only helps.
+  `Completable`. A walk can be undone, so the old route still works.
+  Picking up a key only helps (`Completable.ahead`). Opening a door is the one
+  move that can strand the player, so the rules ask the checker first and
+  refuse the move if it says no.
 - `Game` packages a state with its invariant, so `Game.completable` holds for
   every state the game can be in, by construction.
 

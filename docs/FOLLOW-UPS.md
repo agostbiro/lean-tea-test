@@ -6,26 +6,10 @@ matters here.
 
 ## 1. Consumable keys
 
-A key is spent when a door opens. This is the agreed second milestone and the
-one that makes the no-softlock theorem interesting, since a player could waste
-a key on the wrong door.
-
-- `Cell.pickUp` becomes a count per color, not a membership list. `Held` turns
-  into something like `Color → Nat`.
-- `State.step` removes a key when the player enters a door, and an opened door
-  must become permanently open (a new cell state, or a set of opened doors in
-  `State`), otherwise walking back through it would cost a second key.
-- `Reachable.foundDoor` is no longer valid as stated: a key found on a reachable
-  cell opens one door, not every door of its color. The semantic definition
-  needs a resource-aware formulation, and `rebase_adj` needs the opened door to
-  stay passable without a key.
-- The checker becomes a search over (position, keys held, doors opened) rather
-  than a fixed point on colors. Soundness proof shape stays the same.
-- The generator must place keys so that no reachable wrong door can strand the
-  player, or `State.step` must refuse a door-opening move that would make the
-  state non-Completable. The second option keeps the generator unproven, which
-  matches `docs/adr/0001`, but it means the rules consult the checker.
-- `Tests.lean` walkthrough needs a case for "key spent, door stays open".
+Done on 2026-10-09. The rules ask the checker before a door opens and refuse
+the move if it says no, so the generator stays unproven. The generator still
+gives each door its own color, so the refusal only shows up in the
+`walkStrand` test, not in generated dungeons.
 
 ## 2. Chasing monsters
 
@@ -75,4 +59,5 @@ Pick up, drop, open, and an inventory screen.
   can likely be rewritten against core Lean and Batteries; see
   `docs/adr/0003`.
 - Decidability instances used by kernel `decide` must be written by hand, not
-  by tactic. The `Cell.passable` instance has a note explaining why.
+  by tactic. The core now uses `Bool` functions (`Config.free`) instead, which
+  sidesteps this.

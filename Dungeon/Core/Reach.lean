@@ -1,79 +1,124 @@
 import Dungeon.Core.Basic
 
-/-! # Reachability and the meaning of Completable.
+/-! # Moves on the grid and the meaning of Completable.
 
-`Reachable d start held` is the set of cells the player can get to from
-`start` holding `held`, where a door opens if its color is held or if a key of
-its color lies on some reachable cell. Keys are never spent. This is the
+The dungeon grid never changes. What the player has done to it is a `Config`:
+where they stand, which key cells they have emptied and which doors they have
+opened. `Step` is one move in this model, with keys spent on doors, and
+`Completable` says some sequence of steps reaches the Stairs. This is the
 semantic definition the headline theorem is about; the checker in
 `Dungeon.Core.Check` is proved sound against it. -/
 
 namespace Crawl
 
-inductive Reachable (d : Dungeon) (start : Pos) (held : Held) : Pos → Prop
-  | start : Reachable d start held start
-  | step {p q : Pos} (hp : Reachable d start held p) (hadj : Adj p q)
-      (hq : (d.cellAt q).isOpen = true) : Reachable d start held q
-  | heldDoor {p q : Pos} {c : Color} (hp : Reachable d start held p) (hadj : Adj p q)
-      (hq : d.cellAt q = .door c) (hc : c ∈ held) : Reachable d start held q
-  | foundDoor {p q r : Pos} {c : Color} (hp : Reachable d start held p) (hadj : Adj p q)
-      (hq : d.cellAt q = .door c) (hr : Reachable d start held r)
-      (hk : d.cellAt r = .key c) : Reachable d start held q
+/-- The player's position plus the parts of the dungeon they have changed:
+key cells they have emptied and doors they have opened. -/
+structure Config where
+  pos : Pos
+  got : List Pos
+  opened : List Pos
+  deriving DecidableEq, Repr, Inhabited
 
-/-- The Stairs are reachable. -/
-def Completable (d : Dungeon) (start : Pos) (held : Held) : Prop :=
-  ∃ s, d.cellAt s = .stairs ∧ Reachable d start held s
+/-- Keys of a color in hand: those picked up minus those spent on doors. -/
+def Config.held (k : Config) (d : Dungeon) (c : Color) : Nat :=
+  k.got.countP (fun p => d.cellAt p = .key c) - k.opened.countP (fun p => d.cellAt p = .door c)
 
-/-- The cell the player stands on can be entered with the keys held. This is
-what lets a move be undone, which is the heart of move preservation. -/
-def StandOk (d : Dungeon) (held : Held) (p : Pos) : Prop :=
-  (d.cellAt p).passable held
+/-- A cell the player can walk onto without changing anything: floor, stairs,
+an emptied key cell or an opened door. -/
+def Config.free (k : Config) (d : Dungeon) (q : Pos) : Bool :=
+  match d.cellAt q with
+  | .floor | .stairs => true
+  | .key _ => q ∈ k.got
+  | .door _ => q ∈ k.opened
+  | .wall => false
 
-instance (d : Dungeon) (held : Held) (p : Pos) : Decidable (StandOk d held p) :=
-  inferInstanceAs (Decidable ((d.cellAt p).passable held))
+/-- One move. Walking changes nothing but the position. Picking up a key empties
+its cell. Unlocking a door spends a key and leaves the door open for good. -/
+inductive Step (d : Dungeon) : Config → Config → Prop
+  | walk {k : Config} {q : Pos} (hadj : Adj k.pos q) (hq : k.free d q = true) :
+      Step d k ⟨q, k.got, k.opened⟩
+  | pick {k : Config} {q : Pos} {c : Color} (hadj : Adj k.pos q) (hq : d.cellAt q = .key c)
+      (hn : q ∉ k.got) : Step d k ⟨q, q :: k.got, k.opened⟩
+  | unlock {k : Config} {q : Pos} {c : Color} (hadj : Adj k.pos q) (hq : d.cellAt q = .door c)
+      (hn : q ∉ k.opened) (hk : 0 < k.held d c) : Step d k ⟨q, k.got, q :: k.opened⟩
 
-namespace Reachable
+abbrev Steps (d : Dungeon) : Config → Config → Prop := Relation.ReflTransGen (Step d)
 
-/-- A passable neighbour of a reachable cell is reachable. -/
-theorem step_passable {d start held} {p q : Pos} (hp : Reachable d start held p)
-    (hadj : Adj p q) (hq : (d.cellAt q).passable held) : Reachable d start held q := by
-  rcases hq with hq | ⟨c, hc, hm⟩
-  · exact Reachable.step hp hadj hq
-  · exact Reachable.heldDoor hp hadj hc hm
+/-- Some sequence of moves reaches the Stairs. -/
+def Completable (d : Dungeon) (k : Config) : Prop :=
+  ∃ k', Steps d k k' ∧ d.cellAt k'.pos = .stairs
 
-/-- Holding more keys never loses reachability. -/
-theorem mono {d start} {held held' : Held} (sub : held ⊆ held') {p : Pos}
-    (h : Reachable d start held p) : Reachable d start held' p := by
-  induction h with
-  | start => exact Reachable.start
-  | step _ hadj hq ih => exact Reachable.step ih hadj hq
-  | heldDoor _ hadj hq hc ih => exact Reachable.heldDoor ih hadj hq (sub hc)
-  | foundDoor _ hadj hq _ hk ih ihr => exact Reachable.foundDoor ih hadj hq ihr hk
+/-- The cell the player stands on can be walked back onto. This is what lets a
+move be undone, which is the heart of move preservation. -/
+def StandOk (d : Dungeon) (k : Config) : Prop :=
+  k.free d k.pos = true
 
-/-- Everything reachable from `s` is reachable from an adjacent `q`, provided
-`s` itself can be re-entered. -/
-theorem rebase_adj {d held} {s q : Pos} (hadj : Adj s q) (hs : StandOk d held s)
-    {p : Pos} (h : Reachable d s held p) : Reachable d q held p := by
-  induction h with
-  | start => exact step_passable Reachable.start hadj.symm hs
-  | step _ hadj' hq ih => exact Reachable.step ih hadj' hq
-  | heldDoor _ hadj' hq hc ih => exact Reachable.heldDoor ih hadj' hq hc
-  | foundDoor _ hadj' hq _ hk ih ihr => exact Reachable.foundDoor ih hadj' hq ihr hk
+instance (d : Dungeon) (k : Config) : Decidable (StandOk d k) :=
+  inferInstanceAs (Decidable (k.free d k.pos = true))
 
-end Reachable
+/-- Stepping next to the player keeps the Stairs reachable: walk back first. -/
+theorem Completable.back {d : Dungeon} {k : Config} {q : Pos} (hadj : Adj q k.pos)
+    (hs : StandOk d k) (h : Completable d k) : Completable d ⟨q, k.got, k.opened⟩ := by
+  obtain ⟨k', hk', hst⟩ := h
+  refine ⟨k', Relation.ReflTransGen.head ?_ hk', hst⟩
+  exact Step.walk (k := ⟨q, k.got, k.opened⟩) hadj hs
 
-theorem Completable.mono {d start} {held held' : Held} (sub : held ⊆ held')
-    (h : Completable d start held) : Completable d start held' :=
-  let ⟨s, hs, hr⟩ := h
-  ⟨s, hs, hr.mono sub⟩
+/-- `b` is `a` with possibly some keys already picked up. Every move from `a`
+can be copied from `b`, so `b` is at least as well off. -/
+structure Ahead (a b : Config) : Prop where
+  pos : a.pos = b.pos
+  opened : a.opened = b.opened
+  got : a.got ⊆ b.got
+  nodup : a.got.Nodup
 
-theorem Completable.rebase_adj {d held} {s q : Pos} (hadj : Adj s q) (hs : StandOk d held s)
-    (h : Completable d s held) : Completable d q held :=
-  let ⟨t, ht, hr⟩ := h
-  ⟨t, ht, hr.rebase_adj hadj hs⟩
+namespace Ahead
 
-theorem StandOk.mono {d} {held held' : Held} (sub : held ⊆ held') {p : Pos}
-    (h : StandOk d held p) : StandOk d held' p :=
-  Cell.passable_mono sub h
+theorem held_le {d : Dungeon} {a b : Config} (h : Ahead a b) (c : Color) :
+    a.held d c ≤ b.held d c := by
+  unfold Config.held
+  rw [h.opened]
+  exact Nat.sub_le_sub_right ((h.nodup.subperm h.got).countP_le _) _
+
+theorem free {d : Dungeon} {a b : Config} (h : Ahead a b) {q : Pos}
+    (hq : a.free d q = true) : b.free d q = true := by
+  unfold Config.free at *
+  generalize d.cellAt q = cell at hq ⊢
+  cases cell <;> simp only [decide_eq_true_eq] at hq ⊢
+  case key => exact h.got hq
+  case door => exact h.opened ▸ hq
+  case wall => exact hq
+
+theorem step {d : Dungeon} {a a' b : Config} (h : Ahead a b) (hs : Step d a a') :
+    ∃ b', Step d b b' ∧ Ahead a' b' := by
+  cases hs with
+  | walk hadj hq =>
+    exact ⟨_, Step.walk (h.pos ▸ hadj) (h.free hq), ⟨rfl, h.opened, h.got, h.nodup⟩⟩
+  | @pick q c hadj hq hn =>
+    by_cases hb : q ∈ b.got
+    · refine ⟨_, Step.walk (h.pos ▸ hadj) (by simp [Config.free, hq, hb]), ?_⟩
+      exact ⟨rfl, h.opened, List.cons_subset.2 ⟨hb, h.got⟩, List.nodup_cons.2 ⟨hn, h.nodup⟩⟩
+    · refine ⟨_, Step.pick (h.pos ▸ hadj) hq hb, ?_⟩
+      exact ⟨rfl, h.opened, List.cons_subset_cons _ h.got, List.nodup_cons.2 ⟨hn, h.nodup⟩⟩
+  | unlock hadj hq hn hk =>
+    refine ⟨_, Step.unlock (h.pos ▸ hadj) hq (h.opened ▸ hn) (Nat.lt_of_lt_of_le hk (h.held_le _)),
+      ⟨rfl, by simp [h.opened], h.got, h.nodup⟩⟩
+
+theorem steps {d : Dungeon} {a a' b : Config} (h : Ahead a b) (hs : Steps d a a') :
+    ∃ b', Steps d b b' ∧ Ahead a' b' := by
+  induction hs with
+  | refl => exact ⟨b, Relation.ReflTransGen.refl, h⟩
+  | tail _ hs ih =>
+    obtain ⟨b', hb', hab'⟩ := ih
+    obtain ⟨b'', hb'', hab''⟩ := hab'.step hs
+    exact ⟨b'', hb'.tail hb'', hab''⟩
+
+end Ahead
+
+/-- Holding keys early never hurts. -/
+theorem Completable.ahead {d : Dungeon} {a b : Config} (h : Ahead a b) (hc : Completable d a) :
+    Completable d b := by
+  obtain ⟨a', ha', hst⟩ := hc
+  obtain ⟨b', hb', hab⟩ := h.steps ha'
+  exact ⟨b', hb', hab.pos ▸ hst⟩
 
 end Crawl

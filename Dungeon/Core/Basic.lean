@@ -21,13 +21,6 @@ inductive Cell where
   | stairs
   deriving DecidableEq, Repr, Inhabited
 
-/-- A cell the player may always enter, whatever keys they hold. -/
-def Cell.isOpen : Cell → Bool
-  | .floor => true
-  | .key _ => true
-  | .stairs => true
-  | _ => false
-
 /-- A grid position. Row-major, `x` to the right, `y` down. -/
 structure Pos where
   x : Nat
@@ -93,41 +86,5 @@ structure Dungeon where
 /-- Cell lookup. Anything outside the grid, or beyond the array, is wall. -/
 def Dungeon.cellAt (d : Dungeon) (p : Pos) : Cell :=
   if p.x < d.width ∧ p.y < d.height then d.cells.getD (p.y * d.width + p.x) .wall else .wall
-
-/-- Keys currently held. A list because the proofs only ever ask about
-membership and growth. -/
-abbrev Held := List Color
-
-/-- A cell is passable with the keys held: open cells always, doors only when
-the matching color is held. -/
-def Cell.passable (c : Cell) (held : Held) : Prop :=
-  c.isOpen = true ∨ ∃ col, c = .door col ∧ col ∈ held
-
-/-- Written by hand, not by tactic, so the kernel can evaluate it when the
-fallback dungeon is checked by `decide`. -/
-instance (c : Cell) (held : Held) : Decidable (c.passable held) :=
-  match c with
-  | .wall => isFalse (by simp [Cell.passable, Cell.isOpen])
-  | .floor => isTrue (Or.inl rfl)
-  | .key _ => isTrue (Or.inl rfl)
-  | .stairs => isTrue (Or.inl rfl)
-  | .door col =>
-    if h : col ∈ held then isTrue (Or.inr ⟨col, rfl, h⟩)
-    else isFalse (by simp [Cell.passable, Cell.isOpen, h])
-
-theorem Cell.passable_mono {c : Cell} {h h' : Held} (sub : h ⊆ h') (hp : c.passable h) :
-    c.passable h' := by
-  rcases hp with hp | ⟨col, rfl, hm⟩
-  · exact Or.inl hp
-  · exact Or.inr ⟨col, rfl, sub hm⟩
-
-/-- The keys held after stepping onto a cell. -/
-def Cell.pickUp (c : Cell) (held : Held) : Held :=
-  match c with
-  | .key col => col :: held
-  | _ => held
-
-theorem Cell.subset_pickUp (c : Cell) (held : Held) : held ⊆ c.pickUp held := by
-  cases c <;> simp [Cell.pickUp]
 
 end Crawl

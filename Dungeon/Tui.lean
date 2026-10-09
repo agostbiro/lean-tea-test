@@ -40,7 +40,8 @@ def describe : Event → String
   | .moved => ""
   | .blocked => "Something solid is in the way."
   | .lockedDoor c => s!"The {repr c} door is locked."
-  | .openedDoor c => s!"You unlock the {repr c} door."
+  | .openedDoor c => s!"You spend a {repr c} key and the door opens for good."
+  | .wouldStrand c => s!"Opening this {repr c} door would leave the stairs out of reach."
   | .pickedKey c => s!"You pick up the {repr c} key."
   | .reachedStairs => "You reach the stairs. You escaped!"
   | .hitMonster n => s!"You hit the monster ({n} hp left). It hits back."
@@ -51,7 +52,7 @@ def start (seed : Nat) : Model :=
   { game := o.game, phase := .playing, seed := seed, usedFallback := o.usedFallback,
     attempts := o.attempts,
     message := if o.usedFallback then "Generation gave up; using the fallback dungeon."
-               else "Find the stairs. Keys open doors of their color." }
+               else "Find the stairs. Each key opens one door of its color." }
 
 def update (msg : Msg) (m : Model) : Model :=
   match msg with
@@ -84,10 +85,10 @@ def glyph (s : State) (p : Pos) : TCell :=
     | .floor => { ch := '.', style := { fg := .white, dim := true } }
     | .stairs => { ch := '>', style := { fg := .bright .yellow, bold := true } }
     | .door c =>
-      if c ∈ s.held then { ch := '\'', style := colorStyle c }
+      if p ∈ s.opened then { ch := '\'', style := colorStyle c }
       else { ch := '+', style := colorStyle c }
     | .key c =>
-      if c ∈ s.held then { ch := '.', style := { fg := .white, dim := true } }
+      if p ∈ s.got then { ch := '.', style := { fg := .white, dim := true } }
       else { ch := 'k', style := colorStyle c }
 
 def statusLine (m : Model) : Array TCell := Id.run do
@@ -96,10 +97,11 @@ def statusLine (m : Model) : Array TCell := Id.run do
     str.toList.foldl (fun r c => r.push { ch := c, style := st }) row
   let mut row := put #[] s!"HP {s.hp}/{Gen.playerHp}  keys: " {}
   for c in [Color.red, .green, .blue] do
-    if c ∈ s.held then
-      row := put row (String.singleton (colorLetter c)) (colorStyle c)
-    else
+    let n := s.held c
+    if n = 0 then
       row := put row "-" { dim := true }
+    else
+      row := put row (String.ofList (List.replicate n (colorLetter c))) (colorStyle c)
   row := put row s!"  seed {m.seed}  rolls {m.attempts}" {}
   if m.usedFallback then
     row := put row "  FALLBACK" { fg := .bright .yellow, bold := true }

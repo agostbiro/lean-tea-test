@@ -161,20 +161,20 @@ def propose : Rand (Option Proposal) := do
     taken := mp :: taken
   return some { dungeon := ⟨width, height, cells⟩, player := rooms[0]!.center, monsters }
 
-/-- Rows of glyphs to a dungeon. `#` wall, `.` floor, `>` stairs, `R`/`G`/`B`
-doors, `r`/`g`/`b` keys. -/
-def ofRows (rows : List String) : Dungeon :=
+/-- Rows of glyphs, each `w` wide, to a dungeon. `#` wall, `.` floor, `>`
+stairs, `R`/`G`/`B` doors, `r`/`g`/`b` keys. -/
+def ofRows (w : Nat) (rows : List String) : Dungeon :=
   let cellOf : Char → Cell
     | '.' => .floor
     | '>' => .stairs
     | 'R' => .door .red | 'G' => .door .green | 'B' => .door .blue
     | 'r' => .key .red | 'g' => .key .green | 'b' => .key .blue
     | _ => .wall
-  ⟨width, height, (rows.flatMap fun row => row.toList.map cellOf).toArray⟩
+  ⟨w, rows.length, (rows.flatMap fun row => row.toList.map cellOf).toArray⟩
 
 /-- The dungeon used when every roll was rejected. A small room, a locked door,
 its key, and the stairs. -/
-def fallbackDungeon : Dungeon := ofRows (
+def fallbackDungeon : Dungeon := ofRows width (
   [ "############################################################"
   , "#......#...................................................#"
   , "#......R...........>.......................................#"
@@ -186,9 +186,9 @@ def fallbackPlayer : Pos := ⟨1, 1⟩
 
 /-- Checked at compile time by `decide`: the fallback is Completable. -/
 def fallback : Game :=
-  ⟨{ dungeon := fallbackDungeon, player := fallbackPlayer, held := [], hp := playerHp,
-      monsters := [] },
-    ⟨by decide +kernel, check_sound (by decide +kernel)⟩⟩
+  ⟨{ dungeon := fallbackDungeon, player := fallbackPlayer, got := [], opened := [],
+      hp := playerHp, monsters := [] },
+    ⟨by decide +kernel, List.nodup_nil, check_sound (by decide +kernel)⟩⟩
 
 /-- What a generation attempt produced. -/
 structure Outcome where

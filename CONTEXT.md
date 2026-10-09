@@ -25,11 +25,14 @@ _Avoid_: Hallway, passage, tunnel
 **Passable**:
 A cell the player is allowed to enter in the current state.
 
+**Free**:
+A cell the player can walk onto without changing anything: floor, Stairs, a Key cell already emptied, or an Open door.
+
 **Wall**:
 A cell that is never passable.
 
 **Door**:
-A cell with a Color that is passable only once the player holds a Key of that Color.
+A cell with a Color. Entering it spends one Key of that Color, after which the door is Open and stays passable without a key.
 _Avoid_: Lock, gate
 
 **Color**:
@@ -37,7 +40,7 @@ The label shared by a Door and the Keys that open it. A dungeon may use several 
 _Avoid_: Kind, type, id
 
 **Key**:
-An item with a Color lying in a cell that, once picked up, lets the player pass every Door of that Color. In the first version a key is never spent.
+An item with a Color lying in a cell. Picking it up empties the cell. It opens one Door of its Color and is spent doing so.
 
 **Stairs**:
 The goal cell. Entering it finishes the dungeon.
@@ -58,7 +61,7 @@ _Avoid_: Default dungeon, backup
 ### Theorem
 
 **Completable**:
-A dungeon state is completable when the Stairs are reachable from the player's cell through passable cells, where reaching a Key makes every Door of its Color passable from then on.
+A dungeon state is completable when some sequence of moves reaches the Stairs, counting keys picked up and spent along the way.
 _Avoid_: Solvable, winnable
 
 **Softlock**:
@@ -66,5 +69,5 @@ A reachable game state that is not Completable. The theorem says no softlock exi
 _Avoid_: Stuck, dead end
 
 **Legal move**:
-A step in one of four directions, or a wait. Stepping onto a Key picks it up, stepping into a Door of a held Color opens it, and stepping into a Monster attacks instead of moving. Every legal move must preserve Completable.
+A step in one of four directions, or a wait. Stepping onto a Key picks it up, stepping into a closed Door of a held Color spends a key and opens it, and stepping into a Monster attacks instead of moving. Opening a Door is refused when it would leave the state not Completable. Every legal move must preserve Completable.
 _Avoid_: Action, command, turn
