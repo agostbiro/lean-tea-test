@@ -7,7 +7,8 @@ are open. For each config it finds the cells the player can walk to with a
 breadth-first search, then branches on every key it could pick up and every
 door it could unlock next. Configs with the same keys and doors are explored
 once. Both searches are fuel-bounded so they are total; soundness does not
-depend on the fuel. Only soundness is proved: if the checker says yes, the
+depend on the fuel, but the fuel is large enough that neither search stops
+early. That matters because the rules refuse a door when the checker says no. Only soundness is proved: if the checker says yes, the
 dungeon is Completable. That is the direction the game relies on. -/
 
 namespace Crawl
@@ -61,14 +62,20 @@ def search (d : Dungeon) : Nat → List Config → List Config → Bool
       let (seen', todo) := enqueue seen rest (successors d k reg)
       search d fuel seen' todo
 
-/-- Configs to explore before giving up. -/
-def searchFuel : Nat := 1024
+/-- Configs to explore before giving up. Every queued config has a different
+set of emptied keys and opened doors, so there are at most `2 ^ n` of them for
+`n` key and door cells. With this much fuel the search never gives up early;
+it explores every config the player can reach. -/
+def searchFuel (d : Dungeon) : Nat :=
+  2 ^ d.cells.toList.countP fun
+    | .key _ | .door _ => true
+    | _ => false
 
 end Check
 
 /-- Does the checker find the Stairs? -/
 def check (d : Dungeon) (k : Config) : Bool :=
-  Check.search d Check.searchFuel [k] [k]
+  Check.search d (Check.searchFuel d) [k] [k]
 
 namespace Check
 

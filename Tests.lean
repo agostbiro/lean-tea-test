@@ -86,11 +86,45 @@ def walkStrand : IO Bool := do
   ok := ok && (← expect "reached stairs" (ev4 = .reachedStairs ∧ g4.won))
   return ok
 
+/-- A short red route and an optional spur with four green keys and fourteen
+green doors that lead nowhere. With the green keys in hand there are many
+configs to explore, and the checker must still find the red route instead of
+running out of fuel and refusing the red door. -/
+def walkManyDoors : IO Bool := do
+  let d := Gen.ofRows 20
+    [ "####################"
+    , "#.rRrRrR>###########"
+    , "#.##################"
+    , "#gggg..............#"
+    , "#####GGGGGGGGGGGGGG#"
+    , "#####..............#"
+    , "####################" ]
+  let some g := Game.start? d ⟨1, 1⟩ Gen.playerHp []
+    | IO.eprintln "walkManyDoors: checker rejected the dungeon"; return false
+  let mut ok := true
+  let expect := fun (name : String) (cond : Bool) => do
+    if !cond then IO.eprintln s!"walkManyDoors: {name} failed"
+    pure cond
+  let play := fun (g : Game) (moves : List Move) =>
+    moves.foldl (fun (acc : Game × Event) m => acc.1.step m) (g, .waited)
+  -- down into the spur, collect the four green keys, come back
+  let (g1, _) := play g ([Move.step .down, .step .down] ++ List.replicate 3 (Move.step .right)
+    ++ List.replicate 3 (Move.step .left) ++ [.step .up, .step .up])
+  ok := ok && (← expect "four green keys" (g1.state.held .green = 4))
+  -- the red route: key, door, key, door, key, door, stairs
+  let (g2, ev2) := play g1 [Move.step .right, .step .right]
+  ok := ok && (← expect "opened first red door" (ev2 = .openedDoor .red))
+  let (g3, ev3) := play g2 (List.replicate 5 (Move.step .right))
+  ok := ok && (← expect "reached stairs" (ev3 = .reachedStairs ∧ g3.won))
+  return ok
+
 def main : IO UInt32 := do
   let walked ← walkFallback
   IO.println s!"fallback walkthrough: {if walked then "ok" else "FAILED"}"
   let guarded ← walkStrand
   IO.println s!"strand guard: {if guarded then "ok" else "FAILED"}"
+  let manyDoors ← walkManyDoors
+  IO.println s!"many doors: {if manyDoors then "ok" else "FAILED"}"
   let n := 200
   let mut fallbacks := 0
   let mut rolls := 0
@@ -103,4 +137,4 @@ def main : IO UInt32 := do
       fallbacks := fallbacks + 1
       IO.eprintln s!"seed {seed}: fallback"
   IO.println s!"{n} seeds, {fallbacks} fallbacks, {rolls} rolls total, worst {worst}"
-  return if fallbacks = 0 ∧ walked ∧ guarded then 0 else 1
+  return if fallbacks = 0 ∧ walked ∧ guarded ∧ manyDoors then 0 else 1
